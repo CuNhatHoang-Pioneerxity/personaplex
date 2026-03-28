@@ -9,10 +9,17 @@ import { env } from "../../env";
 import { prewarmDecoderWorker } from "../../decoder/decoderWorker";
 
 const VOICE_OPTIONS = [
-  "af_bella", "af_sarah", "af_sky", "af_nicole",
-  "am_adam", "am_michael", "am_adam",
-  "bf_emma", "bf_isabella", "bf_alice",
-  "bm_george", "bm_lewis", "bm_daniel",
+  // Vietnamese voices
+  "vi_VN-vais1000-medium", "vi_VN-25hours_single-low", "vi_VN-vivos-x_low",
+  // English voices
+  "en_US-lessac-medium", "en_US-amy-medium", "en_US-danny-medium",
+  "en_GB-alba-medium", "en_GB-cori-medium",
+];
+
+const LANGUAGE_OPTIONS = [
+  { value: "auto", label: "Auto-detect" },
+  { value: "vi", label: "Vietnamese (forced)" },
+  { value: "en", label: "English (forced)" },
 ];
 
 const TEXT_PROMPT_PRESETS = [
@@ -41,6 +48,8 @@ interface HomepageProps {
   setTextPrompt: (value: string) => void;
   voicePrompt: string;
   setVoicePrompt: (value: string) => void;
+  language: string;
+  setLanguage: (value: string) => void;
 }
 
 const Homepage = ({
@@ -50,13 +59,15 @@ const Homepage = ({
   setTextPrompt,
   voicePrompt,
   setVoicePrompt,
+  language,
+  setLanguage,
 }: HomepageProps) => {
   return (
     <div className="text-center h-screen w-screen p-4 flex flex-col items-center pt-8">
       <div className="mb-6">
         <h1 className="text-4xl text-black">Alternative Voice Stack</h1>
         <p className="text-sm text-gray-600 mt-2">
-          Whisper + Kokoro + Ollama with Vietnamese support
+          Whisper + Piper + Ollama with Vietnamese support
         </p>
       </div>
 
@@ -95,7 +106,7 @@ const Homepage = ({
 
         <div className="w-full">
           <label htmlFor="voice-prompt" className="block text-left text-base font-medium text-gray-700 mb-2">
-            Voice (Kokoro):
+            Voice (Piper):
           </label>
           <select
             id="voice-prompt"
@@ -110,6 +121,26 @@ const Homepage = ({
               </option>
             ))}
           </select>
+        </div>
+
+        <div className="w-full">
+          <label htmlFor="language" className="block text-left text-base font-medium text-gray-700 mb-2">
+            Language:
+          </label>
+          <select
+            id="language"
+            name="language"
+            value={language}
+            onChange={(e) => setLanguage(e.target.value)}
+            className="w-full p-3 bg-white text-black border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-[#76b900] focus:border-transparent"
+          >
+            {LANGUAGE_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+          <p className="text-xs text-gray-500 mt-1">Force Vietnamese if auto-detection fails</p>
       </div>
 
         {showMicrophoneAccessMessage && (
@@ -206,6 +237,8 @@ export const Queue:FC = () => {
           setTextPrompt={modelParams.setTextPrompt}
           voicePrompt={modelParams.voicePrompt}
           setVoicePrompt={modelParams.setVoicePrompt}
+          language={modelParams.language}
+          setLanguage={modelParams.setLanguage}
         />
       )}
     </>

@@ -75,6 +75,7 @@ export const ModelParams:FC<ModelParamsProps> = ({
             repetitionPenaltyContext,
             textPrompt: modalTextPrompt,
             voicePrompt: modalVoicePrompt,
+            language: "auto", // Default for modal
             randomSeed,
           });
           modal?.current?.close()

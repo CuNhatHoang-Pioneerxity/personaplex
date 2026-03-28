@@ -53,10 +53,14 @@ class WhisperSTT:
             task="transcribe",
             vad_filter=True,
             vad_parameters=dict(min_silence_duration_ms=500),
+            # Better language detection for Vietnamese
+            language_detection_threshold=0.5,
         )
         
         text = " ".join(segment.text.strip() for segment in segments)
-        return text, info.language
+        detected_lang = info.language if info.language_probability > 0.3 else "en"
+        print(f"DEBUG: Detected language: {info.language} (probability: {info.language_probability:.2f})")
+        return text, detected_lang
     
     async def transcribe_async(
         self,
@@ -104,7 +108,7 @@ class WhisperSTT:
 
 # Vietnamese-optimized configuration
 VIETNAMESE_WHISPER_CONFIG = {
-    "model_size": "small",  # or "medium" for better accuracy
+    "model_size": "medium",  # Medium for better Vietnamese accuracy
     "language": "vi",
     "device": "cuda",
     "compute_type": "float16",

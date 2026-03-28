@@ -42,8 +42,8 @@ class MoshiProcessor extends AudioWorkletProcessor {
       console.log(this.timestamp(), "Got frame", this.pidx++, asMs(this.currentSamples()), asMs(frame.length))
       this.frames.push(frame);
       
-      // Don't start until we have at least 2 seconds buffered
-      if (this.currentSamples() >= asSamples(2000) && !this.started) {
+      // Don't start until we have at least 0.5 seconds buffered (lowered from 2s for Piper)
+      if (this.currentSamples() >= asSamples(500) && !this.started) {
         console.log(this.timestamp(), "Starting playback with", asMs(this.currentSamples()), "buffered");
         this.start();
       }

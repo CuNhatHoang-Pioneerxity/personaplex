@@ -30,7 +30,7 @@ from .protocol import (
 )
 from .stt import WhisperSTT
 from .llm import OllamaLLM, PERSONA_PROMPTS
-from .tts import KokoroTTS, FallbackTTS, get_tts_for_language
+from .tts import PiperTTS, FallbackTTS, get_tts_for_language
 from .audio import AudioBuffer, OpusCodec, convert_to_16khz
 
 logger = logging.getLogger(__name__)
@@ -43,7 +43,7 @@ class VoiceSession:
         self,
         stt: WhisperSTT,
         llm: OllamaLLM,
-        tts,  # KokoroTTS or FallbackTTS
+        tts,  # PiperTTS or FallbackTTS
         opus_codec: OpusCodec,
     ):
         self.stt = stt
@@ -60,7 +60,7 @@ class VoiceSession:
         self.processing = False  # Flag to prevent re-entry during processing
         self.detected_language = "en"
         self.text_prompt = ""
-        self.voice_prompt = "af_bella"
+        self.voice_prompt = "en_US-lessac"
         
         # Accumulated text for display
         self.transcribed_text = ""
@@ -73,14 +73,35 @@ class VoiceSession:
         self.text_prompt = text_prompt
         self.voice_prompt = voice_prompt
         
-        # Map voice prompts to TTS voices
+        # Map voice prompts to TTS voices (Piper voice names)
         voice_mapping = {
-            "NATF0": "af_bella",
-            "NATF1": "af_sarah",
-            "NATM0": "am_adam",
-            "NATM1": "am_adam",
+            # New persona IDs
+            "NATF0": "en_US-lessac-medium",  # Female
+            "NATF1": "en_US-amy-medium",      # Female
+            "NATM0": "en_US-danny-medium",     # Male
+            "NATM1": "en_US-danny-medium",     # Male
+            # Old Kokoro voice names -> Piper equivalents
+            "af_bella": "en_US-lessac-medium",
+            "af_sarah": "en_US-amy-medium",
+            "af_sky": "en_US-lessac-medium",
+            "af_nicole": "en_US-lessac-medium",
+            "am_adam": "en_US-danny-medium",
+            "am_michael": "en_US-danny-medium",
+            "bf_emma": "en_GB-alba-medium",
+            "bf_isabella": "en_GB-cori-medium",
+            "bm_george": "en_GB-cori-medium",
+            "bm_lewis": "en_GB-cori-medium",
+            # Vietnamese voices
+            "vi_VN-vais1000-medium": "vi_VN-vais1000-medium",
+            "vi_VN-25hours_single-low": "vi_VN-25hours_single-low",
+            "vi_VN-vivos-x_low": "vi_VN-vivos-x_low",
         }
-        self.voice_prompt = voice_mapping.get(voice_prompt, voice_prompt)
+        
+        # If voice_prompt is already a Piper voice name, use it directly
+        if voice_prompt in voice_mapping.values():
+            self.voice_prompt = voice_prompt
+        else:
+            self.voice_prompt = voice_mapping.get(voice_prompt, "en_US-lessac-medium")  # Default fallback
         
         # Set LLM system prompt
         if text_prompt:
@@ -158,8 +179,8 @@ class VoiceSession:
     async def _generate_response(self, user_input: str) -> Optional[bytes]:
         """Generate TTS response for user input."""
         try:
-            # Get TTS for detected language
-            tts = get_tts_for_language(self.detected_language)
+            # Use the session's TTS (already has correct voice)
+            tts = self.tts
             
             # Stream LLM response
             full_response = ""
@@ -179,14 +200,14 @@ class VoiceSession:
                     # Only synthesize if sentence has meaningful content (not just punctuation)
                     if len(sentence_buffer.strip()) > 1:
                         logger.info(f"TTS synthesizing: '{sentence_buffer}'")
-                        audio = await tts.synthesize_async(sentence_buffer, self.voice_prompt)
+                        audio = await tts.synthesize_async(sentence_buffer)
                         audio_chunks.append(audio)
                     sentence_buffer = ""  # Reset for next sentence
             
             # Handle any remaining text without ending punctuation
             if sentence_buffer.strip() and len(sentence_buffer.strip()) > 1:
                 logger.info(f"TTS synthesizing final: '{sentence_buffer}'")
-                audio = await tts.synthesize_async(sentence_buffer, self.voice_prompt)
+                audio = await tts.synthesize_async(sentence_buffer)
                 audio_chunks.append(audio)
             
             self.response_text = full_response
@@ -268,12 +289,32 @@ class AlternativeServer:
         
         logger.info(f"New WebSocket connection from {request.remote}")
         
-        # Create session
+        # Parse query params FIRST
+        text_prompt = request.query.get("text_prompt", "")
+        voice_prompt = request.query.get("voice_prompt", "en_US-lessac")
+        forced_lang = request.query.get("lang", None)
+        
+        if forced_lang == "vi":
+            # Use selected Vietnamese voice, default to vais1000 if not Vietnamese
+            if voice_prompt.startswith("vi_VN-"):
+                voice = voice_prompt
+            else:
+                voice = "vi_VN-vais1000-medium"  # Default Vietnamese voice
+        elif forced_lang == "en":
+            # Use selected English voice, default to lessac if not English
+            if voice_prompt.startswith("en_") or voice_prompt.startswith("af_") or voice_prompt.startswith("am_") or voice_prompt.startswith("bf_") or voice_prompt.startswith("bm_"):
+                voice = voice_prompt
+            else:
+                voice = "en_US-lessac-medium"  # Default English voice
+        else:
+            voice = voice_prompt  # Use selected voice
+        
         llm = OllamaLLM(
             base_url=self.ollama_url,
             model=self.ollama_model,
         )
-        tts = KokoroTTS()
+        tts = PiperTTS(voice=voice)
+        logger.info(f"Initializing Piper TTS with voice '{voice}'")
         
         session = VoiceSession(
             stt=self.stt,
@@ -282,11 +323,14 @@ class AlternativeServer:
             opus_codec=self.opus,
         )
         
-        # Parse query params
-        text_prompt = request.query.get("text_prompt", "")
-        voice_prompt = request.query.get("voice_prompt", "af_bella")
         session.set_persona(text_prompt, voice_prompt)
-        
+        logger.info(f"Language forced to: {forced_lang}")
+        logger.info(f"request.query: {request.query}")
+
+        # Store forced language in session
+        if forced_lang:
+            session.detected_language = forced_lang
+
         # Send handshake
         handshake = encode_message(HandshakeMessage())
         await ws.send_bytes(handshake)
