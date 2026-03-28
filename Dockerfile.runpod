@@ -1,0 +1,69 @@
+# RunPod Dockerfile - PersonaPlex Complete (Moshi + Alternative)
+# Build: docker build -t personaplex-complete -f Dockerfile.runpod .
+# Run: docker run --gpus all -p 8998:8998 -e HF_TOKEN=xxx personaplex-complete
+
+FROM nvidia/cuda:12.1.0-devel-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+WORKDIR /app
+
+# System dependencies
+RUN apt-get update && apt-get install -y \
+    git curl wget ffmpeg \
+    libopus-dev libsndfile1 portaudio19-dev \
+    build-essential \
+    python3.11 python3.11-venv python3-pip \
+    nodejs npm \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install UV
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/root/.local/bin:$PATH"
+
+# Install Ollama
+RUN curl -fsSL https://ollama.com/install.sh | sh
+
+# Copy project
+COPY . /app/
+
+# Build client
+WORKDIR /app/client
+RUN npm install && npm run build
+
+# Setup Moshi
+WORKDIR /app/moshi
+RUN uv venv /app/.venv-moshi && \
+    /app/.venv-moshi/bin/pip install -e .
+
+# Setup Alternative
+WORKDIR /app/alternative_server
+RUN uv venv /app/.venv-alternative && \
+    /app/.venv-alternative/bin/pip install -e . && \
+    /app/.venv-alternative/bin/uv sync
+
+# Create start scripts
+RUN echo '#!/bin/bash\ncd /app && source /app/.venv-moshi/bin/activate && \
+SSL_DIR=$(mktemp -d) && python -m moshi.server --host 0.0.0.0 --port ${PORT:-8998} \
+--ssl "$SSL_DIR" --static /app/client/dist' > /app/start_moshi.sh && chmod +x /app/start_moshi.sh
+
+RUN echo '#!/bin/bash\ncd /app/alternative_server && source /app/.venv-alternative/bin/activate && \
+pgrep -x ollama || (ollama serve & sleep 5) && \
+uv run alternative-server --host 0.0.0.0 --port ${PORT:-8998} --static /app/client/dist \
+--ollama-url http://localhost:11434 --model ${OLLAMA_MODEL:-llama3.2} \
+--whisper-model ${WHISPER_MODEL:-small} --device cuda' > /app/start_alternative.sh && chmod +x /app/start_alternative.sh
+
+RUN echo '#!/bin/bash\nif [ "${BACKEND}" = "alternative" ]; then /app/start_alternative.sh; else /app/start_moshi.sh; fi' \
+> /app/start.sh && chmod +x /app/start.sh
+
+EXPOSE 8998
+
+ENV PORT=8998
+ENV OLLAMA_MODEL=llama3.2
+ENV WHISPER_MODEL=small
+ENV BACKEND=alternative
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
+    CMD curl -f http://localhost:8998/ || exit 1
+
+CMD ["/app/start.sh"]
