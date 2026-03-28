@@ -12,6 +12,10 @@ export default defineConfig(({mode}) => {
   return {
     server: {
       host: "0.0.0.0",
+      https: {
+        cert: "./cert.pem",
+        key: "./key.pem",
+      },
       proxy:{
         ...proxyConf,
       }
