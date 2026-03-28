@@ -3,8 +3,11 @@
 # Runs on port 8999 (Moshi uses 8998)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Ensure UV is in PATH
+# Ensure UV and NVM are in PATH
 export PATH="$HOME/.local/bin:$PATH"
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
 
 # Check for UV
 if ! command -v uv &> /dev/null; then
@@ -14,12 +17,23 @@ if ! command -v uv &> /dev/null; then
     exit 1
 fi
 
-# Build client if needed
-if [ ! -d "$SCRIPT_DIR/alternative_server/client/dist" ]; then
-    echo "Building client..."
+# Build client if needed (in the correct location for Alternative server)
+CLIENT_DIST="$SCRIPT_DIR/alternative_server/client/dist"
+if [ ! -d "$CLIENT_DIST" ]; then
+    echo "Building client in alternative_server/client..."
     cd "$SCRIPT_DIR/alternative_server/client"
+    if ! command -v npm &> /dev/null; then
+        echo "ERROR: npm not found. Ensure Node.js is installed via NVM."
+        echo "Run: source ~/.nvm/nvm.sh && nvm use --lts"
+        exit 1
+    fi
     npm install
     npm run build
+    if [ ! -d "$CLIENT_DIST" ]; then
+        echo "ERROR: Client build failed - dist directory not created"
+        exit 1
+    fi
+    echo "Client built successfully at $CLIENT_DIST"
 fi
 
 cd "$SCRIPT_DIR/alternative_server"

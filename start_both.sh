@@ -5,8 +5,11 @@
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Ensure UV is in PATH
+# Ensure UV and NVM are in PATH
 export PATH="$HOME/.local/bin:$PATH"
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
 
 echo "Starting both backends..."
 
@@ -31,7 +34,7 @@ fi
 uv run alternative-server \
     --host 0.0.0.0 \
     --port 8999 \
-    --static "$SCRIPT_DIR/client/dist" \
+    --static "$SCRIPT_DIR/alternative_server/client/dist" \
     --ollama-url http://localhost:11434 \
     --model ${OLLAMA_MODEL:-llama3.2} \
     --whisper-model ${WHISPER_MODEL:-small} \

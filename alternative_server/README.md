@@ -70,3 +70,7 @@ Binary protocol matching PersonaPlex:
 - `OLLAMA_URL` - Ollama API endpoint (default: http://localhost:11434)
 - `WHISPER_MODEL` - Whisper model size (default: small, options: tiny, base, small, medium, large)
 - `KOKORO_VOICE` - Kokoro voice ID (default: af_bella)
+
+```
+Get-Process python | Stop-Process -Force; alternative-server --host 0.0.0.0 --port 8999 --static ./client/dist --ollama-url http://localhost:11434 --model llama3.2 --whisper-model small --device cuda
+```
