@@ -11,6 +11,7 @@ export const DEFAULT_REPETITION_PENALTY = 1.0;
 export const DEFAULT_TEXT_PROMPT = "You are a helpful assistant with Vietnamese language support. Answer questions clearly and provide helpful information.";
 export const DEFAULT_VOICE_PROMPT = "en_US-lessac-medium";
 export const DEFAULT_LANGUAGE = "auto"; // auto, vi, en
+export const DEFAULT_ENGINE = "piper"; // piper, kokoro
 export const DEFAULT_RANDOM_SEED = -1;
 
 export type ModelParamsValues = {
@@ -24,6 +25,7 @@ export type ModelParamsValues = {
   textPrompt: string;
   voicePrompt: string;
   language: string;
+  engine: string;
   randomSeed: number;
 };
 
@@ -41,6 +43,7 @@ export const useModelParams = (params?:useModelParamsArgs) => {
   const [textPrompt, setTextPromptBase] = useState(params?.textPrompt || DEFAULT_TEXT_PROMPT);
   const [voicePrompt, setVoicePromptBase] = useState(params?.voicePrompt || DEFAULT_VOICE_PROMPT);
   const [language, setLanguageBase] = useState(params?.language || DEFAULT_LANGUAGE);
+  const [engine, setEngineBase] = useState(params?.engine || DEFAULT_ENGINE);
   const [randomSeed, setRandomSeedBase] = useLocalStorage('randomSeed', params?.randomSeed || DEFAULT_RANDOM_SEED);
 
   const resetParams = useCallback(() => {
@@ -129,6 +132,9 @@ export const useModelParams = (params?:useModelParamsArgs) => {
   const setLanguage = useCallback((value: string) => {
     setLanguageBase(value);
   }, []);
+  const setEngine = useCallback((value: string) => {
+    setEngineBase(value);
+  }, []);
   const setRandomSeed = useCallback((value: number) => {
     setRandomSeedBase(value);
   }, []);
@@ -154,6 +160,8 @@ export const useModelParams = (params?:useModelParamsArgs) => {
     voicePrompt,
     language,
     setLanguage,
+    engine,
+    setEngine,
     resetParams,
     setParams,
     randomSeed,

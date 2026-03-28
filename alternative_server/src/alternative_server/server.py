@@ -293,6 +293,7 @@ class AlternativeServer:
         text_prompt = request.query.get("text_prompt", "")
         voice_prompt = request.query.get("voice_prompt", "en_US-lessac")
         forced_lang = request.query.get("lang", None)
+        engine = request.query.get("engine", "piper")  # piper or kokoro
         
         if forced_lang == "vi":
             # Use selected Vietnamese voice, default to vais1000 if not Vietnamese
@@ -309,12 +310,20 @@ class AlternativeServer:
         else:
             voice = voice_prompt  # Use selected voice
         
+        # Create TTS based on engine
+        if engine == "kokoro":
+            from .tts import KokoroTTS
+            tts = KokoroTTS(voice=voice, device="cuda")
+        else:
+            from .tts import PiperTTS
+            tts = PiperTTS(voice=voice, device="cuda")
+        
+        logger.info(f"Initializing {engine.upper()} TTS with voice '{voice}'")
+        
         llm = OllamaLLM(
             base_url=self.ollama_url,
             model=self.ollama_model,
         )
-        tts = PiperTTS(voice=voice)
-        logger.info(f"Initializing Piper TTS with voice '{voice}'")
         
         session = VoiceSession(
             stt=self.stt,

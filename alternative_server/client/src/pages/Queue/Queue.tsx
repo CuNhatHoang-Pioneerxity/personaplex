@@ -8,37 +8,30 @@ import { useModelParams } from "../Conversation/hooks/useModelParams";
 import { env } from "../../env";
 import { prewarmDecoderWorker } from "../../decoder/decoderWorker";
 
-const VOICE_OPTIONS = [
-  // Vietnamese voices
-  "vi_VN-vais1000-medium", "vi_VN-25hours_single-low", "vi_VN-vivos-x_low",
-  // English voices
-  "en_US-lessac-medium", "en_US-amy-medium", "en_US-danny-medium",
-  "en_GB-alba-medium", "en_GB-cori-medium",
-];
-
 const LANGUAGE_OPTIONS = [
   { value: "auto", label: "Auto-detect" },
   { value: "vi", label: "Vietnamese (forced)" },
   { value: "en", label: "English (forced)" },
 ];
 
+const ENGINE_OPTIONS = [
+  { value: "piper", label: "Piper (Vietnamese support)" },
+  { value: "kokoro", label: "Kokoro (English only)" },
+];
+
 const TEXT_PROMPT_PRESETS = [
   {
     label: "Assistant (Vietnamese)",
-    text: "You are a helpful assistant with Vietnamese language support. Answer questions clearly and provide helpful information in Vietnamese or English as appropriate.",
+    text: "You are a helpful assistant with Vietnamese language support, that only speak in Vietnamese. Answer questions clearly and provide helpful information only in Vietnamese as appropriate.",
   },
   {
-    label: "Customer Service (Vietnamese)",
-    text: "You work for a Vietnamese company providing customer service. Be polite and helpful. Answer questions about products and services in Vietnamese.",
+    label: "Customer Service",
+    text: "You work for a company providing customer service. Be polite and helpful.",
   },
   {
-    label: "Teacher (Vietnamese)",
-    text: "You are a friendly Vietnamese teacher. Help students learn Vietnamese or English through conversation and explanations.",
-  },
-  {
-    label: "RAG Assistant",
-    text: "You are a knowledgeable assistant with access to a knowledge base. Provide accurate information based on the context provided to you.",
-  },
+    label: "Teacher",
+    text: "You are a friendly teacher. Help students learn English through conversation and explanations.",
+  }
 ];
 
 interface HomepageProps {
@@ -50,6 +43,8 @@ interface HomepageProps {
   setVoicePrompt: (value: string) => void;
   language: string;
   setLanguage: (value: string) => void;
+  engine: string;
+  setEngine: (value: string) => void;
 }
 
 const Homepage = ({
@@ -61,7 +56,46 @@ const Homepage = ({
   setVoicePrompt,
   language,
   setLanguage,
+  engine,
+  setEngine,
 }: HomepageProps) => {
+  // Update voice options based on engine and language
+  const VOICE_OPTIONS = engine === "kokoro" 
+    ? ["af_bella", "af_sarah", "af_sky", "af_nicole", "am_adam", "am_michael", "bf_emma", "bf_isabella", "bm_george", "bm_lewis"]
+    : language === "vi"
+    ? ["vi_VN-vais1000-medium", "vi_VN-25hours_single-low", "vi_VN-vivos-x_low"]
+    : ["en_US-lessac-medium", "en_US-amy-medium", "en_US-danny-medium", "en_GB-alba-medium", "en_GB-cori-medium"];
+  
+  // Auto-set language when engine changes
+  const handleEngineChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newEngine = e.target.value;
+    setEngine(newEngine);
+    
+    // Force English for Kokoro
+    if (newEngine === "kokoro") {
+      setLanguage("en");
+      // Set default Kokoro voice if current is Piper voice
+      if (!voicePrompt.startsWith("af_") && !voicePrompt.startsWith("am_") && !voicePrompt.startsWith("bf_") && !voicePrompt.startsWith("bm_")) {
+        setVoicePrompt("af_bella");
+      }
+    }
+  };
+  
+  // Handle language change for Piper
+  const handleLanguageChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newLang = e.target.value;
+    setLanguage(newLang);
+    
+    // Auto-set voice based on language for Piper
+    if (engine === "piper") {
+      if (newLang === "vi") {
+        setVoicePrompt("vi_VN-vais1000-medium");
+      } else if (newLang === "en") {
+        setVoicePrompt("en_US-lessac-medium");
+      }
+    }
+  };
+  
   return (
     <div className="text-center h-screen w-screen p-4 flex flex-col items-center pt-8">
       <div className="mb-6">
@@ -72,6 +106,26 @@ const Homepage = ({
       </div>
 
       <div className="flex flex-grow justify-center items-center flex-col gap-6 w-full min-w-[500px] max-w-2xl">
+        <div className="w-full">
+          <label htmlFor="engine" className="block text-left text-base font-medium text-gray-700 mb-2">
+            TTS Engine:
+          </label>
+          <select
+            id="engine"
+            name="engine"
+            value={engine}
+            onChange={handleEngineChange}
+            className="w-full p-3 bg-white text-black border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-[#76b900] focus:border-transparent"
+          >
+            {ENGINE_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+          <p className="text-xs text-gray-500 mt-1">Kokoro: English only, Piper: Vietnamese support</p>
+        </div>
+
         <div className="w-full">
           <label htmlFor="text-prompt" className="block text-left text-base font-medium text-gray-700 mb-2">
             Text Prompt:
@@ -105,8 +159,31 @@ const Homepage = ({
         </div>
 
         <div className="w-full">
+          <label htmlFor="language" className="block text-left text-base font-medium text-gray-700 mb-2">
+            Language:
+          </label>
+          <select
+            id="language"
+            name="language"
+            value={language}
+            onChange={handleLanguageChange}
+            disabled={engine === "kokoro"}
+            className="w-full p-3 bg-white text-black border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-[#76b900] focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
+          >
+            {LANGUAGE_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+          <p className="text-xs text-gray-500 mt-1">
+            {engine === "kokoro" ? "Kokoro only supports English" : "Force Vietnamese if auto-detection fails"}
+          </p>
+        </div>
+
+        <div className="w-full">
           <label htmlFor="voice-prompt" className="block text-left text-base font-medium text-gray-700 mb-2">
-            Voice (Piper):
+            Voices:
           </label>
           <select
             id="voice-prompt"
@@ -121,27 +198,10 @@ const Homepage = ({
               </option>
             ))}
           </select>
+          <p className="text-xs text-gray-500 mt-1">
+            {engine === "kokoro" ? "Kokoro English voices" : language === "vi" ? "Piper Vietnamese voices" : "Piper English voices"}
+          </p>
         </div>
-
-        <div className="w-full">
-          <label htmlFor="language" className="block text-left text-base font-medium text-gray-700 mb-2">
-            Language:
-          </label>
-          <select
-            id="language"
-            name="language"
-            value={language}
-            onChange={(e) => setLanguage(e.target.value)}
-            className="w-full p-3 bg-white text-black border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-[#76b900] focus:border-transparent"
-          >
-            {LANGUAGE_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-          <p className="text-xs text-gray-500 mt-1">Force Vietnamese if auto-detection fails</p>
-      </div>
 
         {showMicrophoneAccessMessage && (
           <p className="text-center text-red-500">Please enable your microphone before proceeding</p>
@@ -239,6 +299,8 @@ export const Queue:FC = () => {
           setVoicePrompt={modelParams.setVoicePrompt}
           language={modelParams.language}
           setLanguage={modelParams.setLanguage}
+          engine={modelParams.engine}
+          setEngine={modelParams.setEngine}
         />
       )}
     </>

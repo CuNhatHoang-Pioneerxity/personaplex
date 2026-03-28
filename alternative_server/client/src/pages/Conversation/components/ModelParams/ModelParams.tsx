@@ -76,6 +76,7 @@ export const ModelParams:FC<ModelParamsProps> = ({
             textPrompt: modalTextPrompt,
             voicePrompt: modalVoicePrompt,
             language: "auto", // Default for modal
+            engine: "piper", // Default for modal
             randomSeed,
           });
           modal?.current?.close()

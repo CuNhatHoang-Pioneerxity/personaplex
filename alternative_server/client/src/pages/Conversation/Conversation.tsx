@@ -71,6 +71,7 @@ const buildURL = ({
   url.searchParams.append("repetition_penalty", params.repetitionPenalty.toString());
   url.searchParams.append("text_prompt", params.textPrompt.toString());
   url.searchParams.append("voice_prompt", params.voicePrompt.toString());
+  url.searchParams.append("engine", params.engine);
   // Add language parameter if not auto
   if (params.language && params.language !== "auto") {
     url.searchParams.append("lang", params.language);
