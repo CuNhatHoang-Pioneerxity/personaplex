@@ -50,3 +50,5 @@ models/
 # UV
 .uv/
 uv.lock
+/client/node_modules/
+/client/dist/

@@ -8,6 +8,12 @@ from pathlib import Path
 from typing import Optional
 import numpy as np
 
+# Add nvidia cublas DLL path before importing CUDA-dependent libraries
+cublas_bin = Path(__file__).parent.parent.parent / ".venv" / "Lib" / "site-packages" / "nvidia" / "cublas" / "bin"
+if cublas_bin.exists():
+    os.add_dll_directory(str(cublas_bin))
+    os.environ["PATH"] = str(cublas_bin) + os.pathsep + os.environ.get("PATH", "")
+
 from aiohttp import web
 
 from .protocol import (
@@ -51,6 +57,7 @@ class VoiceSession:
         # State
         self.is_speaking = False
         self.is_paused = False
+        self.processing = False  # Flag to prevent re-entry during processing
         self.detected_language = "en"
         self.text_prompt = ""
         self.voice_prompt = "af_bella"
@@ -58,6 +65,8 @@ class VoiceSession:
         # Accumulated text for display
         self.transcribed_text = ""
         self.response_text = ""
+        self.last_sent_transcription = ""  # Track already sent text
+        self.last_sent_response = ""  # Track already sent response
     
     def set_persona(self, text_prompt: str, voice_prompt: str):
         """Set the persona for this session."""
@@ -121,7 +130,7 @@ class VoiceSession:
         
         # Get buffered audio
         audio = self.audio_buffer.get_all()
-        self.audio_buffer.clear()
+        self.audio_buffer.clear()  # Clear after taking audio
         
         # Convert to 16kHz for Whisper
         audio_16khz = convert_to_16khz(audio, 24000)
@@ -132,7 +141,12 @@ class VoiceSession:
         self.detected_language = language
         
         if not text.strip():
-            logger.info("No speech detected")
+            logger.info("No speech detected, buffer cleared")
+            return None
+        
+        # Only update if this is new text (not same as last)
+        if text == self.transcribed_text:
+            logger.info("Same text detected, skipping")
             return None
         
         self.transcribed_text = text
@@ -150,6 +164,7 @@ class VoiceSession:
             # Stream LLM response
             full_response = ""
             audio_chunks = []
+            sentence_buffer = ""
             
             async for chunk in self.llm.generate_with_vietnamese(
                 user_input,
@@ -157,11 +172,22 @@ class VoiceSession:
                 stream=True,
             ):
                 full_response += chunk
+                sentence_buffer += chunk
                 
-                # Synthesize each sentence
-                if chunk.endswith(('.', '!', '?', '。', '！', '？')):
-                    audio = await tts.synthesize_async(chunk, self.voice_prompt)
-                    audio_chunks.append(audio)
+                # Check if we have a complete sentence
+                if sentence_buffer.endswith(('.', '!', '?', '。', '！', '？')):
+                    # Only synthesize if sentence has meaningful content (not just punctuation)
+                    if len(sentence_buffer.strip()) > 1:
+                        logger.info(f"TTS synthesizing: '{sentence_buffer}'")
+                        audio = await tts.synthesize_async(sentence_buffer, self.voice_prompt)
+                        audio_chunks.append(audio)
+                    sentence_buffer = ""  # Reset for next sentence
+            
+            # Handle any remaining text without ending punctuation
+            if sentence_buffer.strip() and len(sentence_buffer.strip()) > 1:
+                logger.info(f"TTS synthesizing final: '{sentence_buffer}'")
+                audio = await tts.synthesize_async(sentence_buffer, self.voice_prompt)
+                audio_chunks.append(audio)
             
             self.response_text = full_response
             logger.info(f"Response: {full_response}")
@@ -169,6 +195,8 @@ class VoiceSession:
             # Combine audio chunks
             if audio_chunks:
                 combined = np.concatenate(audio_chunks)
+                duration = len(combined) / 24000  # 24kHz sample rate
+                logger.info(f"Combined audio: {duration:.2f}s from {len(audio_chunks)} chunks")
                 # Encode to Opus
                 opus_data = self.opus.encode(combined)
                 return opus_data
@@ -186,6 +214,8 @@ class VoiceSession:
         self.is_paused = False
         self.transcribed_text = ""
         self.response_text = ""
+        self.last_sent_transcription = ""
+        self.last_sent_response = ""
         self.llm.clear_history()
 
 
@@ -261,6 +291,19 @@ class AlternativeServer:
         handshake = encode_message(HandshakeMessage())
         await ws.send_bytes(handshake)
         
+        # Start ping task to keep connection alive
+        async def ping_task():
+            while not ws.closed:
+                await asyncio.sleep(5)  # Ping every 5 seconds
+                if not ws.closed:
+                    try:
+                        await ws.send_bytes(encode_message(PingMessage()))
+                        logger.debug("Sent ping")
+                    except:
+                        break
+        
+        ping_task_handle = asyncio.create_task(ping_task())
+        
         # Message loop
         try:
             async for msg in ws:
@@ -273,6 +316,7 @@ class AlternativeServer:
         except Exception as e:
             logger.error(f"WebSocket error: {e}")
         finally:
+            ping_task_handle.cancel()
             await llm.close()
             logger.info("WebSocket connection closed")
         
@@ -287,16 +331,40 @@ class AlternativeServer:
         """Handle binary protocol message."""
         try:
             message = decode_message(data)
+            logger.debug(f"Received message: {type(message).__name__}, size: {len(data)}")
             
             if isinstance(message, HandshakeMessage):
                 # Already sent handshake, ignore
                 pass
             
             elif isinstance(message, AudioMessage):
-                # Process audio
-                response_audio = await session.process_audio(message.data)
-                if response_audio:
-                    await ws.send_bytes(encode_message(AudioMessage(data=response_audio)))
+                # Process audio - accumulate and check if we have enough
+                logger.info(f"Audio message received, {len(message.data)} bytes")
+                decoded = session.opus.decode(message.data)
+                logger.info(f"Decoded audio: {len(decoded)} samples, range: [{decoded.min():.4f}, {decoded.max():.4f}], mean: {decoded.mean():.4f}")
+                session.audio_buffer.append(decoded)
+                
+                # Check if we have enough audio to process (1.5 seconds)
+                buffer_samples = len(session.audio_buffer)
+                # Only process if not already processing (cooldown)
+                if buffer_samples >= 36000 and not session.processing:  # 1.5s at 24kHz
+                    session.processing = True  # Set flag to prevent re-entry
+                    logger.info(f"Processing audio buffer: {buffer_samples} samples")
+                    response_audio = await session.end_turn()
+                    session.processing = False  # Clear flag
+                    if response_audio:
+                        logger.info(f"Sending response audio: {len(response_audio)} bytes")
+                        await ws.send_bytes(encode_message(AudioMessage(data=response_audio)))
+                    else:
+                        logger.info("No response audio generated")
+                    
+                    # Send text updates - only if new
+                    if session.transcribed_text and session.transcribed_text != session.last_sent_transcription:
+                        await ws.send_bytes(encode_message(TextMessage(data=f"You: {session.transcribed_text}")))
+                        session.last_sent_transcription = session.transcribed_text
+                    if session.response_text and session.response_text != session.last_sent_response:
+                        await ws.send_bytes(encode_message(TextMessage(data=f"Assistant: {session.response_text}")))
+                        session.last_sent_response = session.response_text
             
             elif isinstance(message, TextMessage):
                 # Direct text input
