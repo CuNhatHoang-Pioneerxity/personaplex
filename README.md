@@ -20,10 +20,13 @@ PersonaPlex is a real-time, full-duplex speech-to-speech conversational model th
 Install the [Opus audio codec](https://github.com/xiph/opus) development library:
 ```bash
 # Ubuntu/Debian
-sudo apt install libopus-dev
+apt install libopus-dev
 
-# Fedora/RHEL
-sudo dnf install opus-devel
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.5/install.sh | bash
+
+source ~/.bashrc
+
+nvm install --lts
 ```
 
 ### Installation
@@ -31,6 +34,12 @@ sudo dnf install opus-devel
 Download this repository and install with:
 ```bash
 pip install moshi/.
+```
+
+```bash
+cd client
+npm install
+npm run build
 ```
 
 Extra step for Blackwell based GPUs as suggested in (See https://github.com/NVIDIA/personaplex/issues/2):
@@ -48,6 +57,11 @@ export HF_TOKEN=<YOUR_HUGGINGFACE_TOKEN>
 
 ### Launch Server
 
+```bash
+cd /personaplex
+python3 -m moshi.server --host 0.0.0.0 --port 8998 --static ./client/dist
+```
+or
 Launch server for live interaction (temporary SSL certs for https):
 ```bash
 SSL_DIR=$(mktemp -d); python -m moshi.server --ssl "$SSL_DIR"
