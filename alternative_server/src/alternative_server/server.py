@@ -462,7 +462,7 @@ class AlternativeServer:
     
     def create_app(self) -> web.Application:
         """Create aiohttp application."""
-        app = web.Application()
+        app = web.Application(middlewares=[self.cors_middleware])
         
         # WebSocket endpoint
         app.router.add_get("/api/chat", self.handle_chat)
@@ -473,6 +473,23 @@ class AlternativeServer:
             app.router.add_static("/", path=self.static_path, name="static")
         
         return app
+    
+    @web.middleware
+    async def cors_middleware(self, request: web.Request, handler):
+        """CORS middleware to allow cross-origin requests."""
+        if request.method == "OPTIONS":
+            # Handle preflight requests
+            response = web.Response()
+            response.headers["Access-Control-Allow-Origin"] = "*"
+            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+            response.headers["Access-Control-Allow-Headers"] = "*"
+            return response
+        
+        response = await handler(request)
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+        return response
     
     def run(self):
         """Run the server."""

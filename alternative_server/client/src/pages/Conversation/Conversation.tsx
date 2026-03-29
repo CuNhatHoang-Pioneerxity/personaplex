@@ -48,6 +48,8 @@ const buildURL = ({
     if (workerAddr == "same" || workerAddr == "") {
       const newWorkerAddr = window.location.hostname + ":" + window.location.port;
       console.log("Overriding workerAddr to", newWorkerAddr);
+      console.log("Current URL:", window.location.href);
+      console.log("WebSocket will connect to:", `${(window.location.protocol === 'https:' ? 'wss' : 'ws')}://${newWorkerAddr}/api/chat`);
       return newWorkerAddr;
     }
     return workerAddr;
