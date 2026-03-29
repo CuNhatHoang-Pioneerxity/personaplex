@@ -51,8 +51,7 @@ class WhisperSTT:
             audio,
             language=self.language,
             task="transcribe",
-            vad_filter=True,
-            vad_parameters=dict(min_silence_duration_ms=500),
+            vad_filter=False,  # Disable VAD to prevent removing all audio
             # Better language detection for Vietnamese
             language_detection_threshold=0.5,
         )
