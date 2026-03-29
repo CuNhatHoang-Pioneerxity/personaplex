@@ -1,9 +1,12 @@
 """Speech-to-Text using faster-whisper with Vietnamese support."""
 
 import asyncio
+import logging
 from typing import AsyncIterator, Optional
 import numpy as np
 from faster_whisper import WhisperModel
+
+logger = logging.getLogger(__name__)
 
 
 class WhisperSTT:
@@ -25,11 +28,13 @@ class WhisperSTT:
     @property
     def model(self) -> WhisperModel:
         if self._model is None:
+            logger.info(f"Loading Whisper model: {self.model_size} on {self.device}")
             self._model = WhisperModel(
                 self.model_size,
                 device=self.device,
                 compute_type=self.compute_type,
             )
+            logger.info("Whisper model loaded successfully")
         return self._model
     
     def transcribe(
@@ -47,18 +52,37 @@ class WhisperSTT:
         Returns:
             Tuple of (transcribed_text, detected_language)
         """
+        # Normalize audio to [-1, 1] range
+        if audio.max() > 1.0 or audio.min() < -1.0:
+            audio = audio / np.max(np.abs(audio))
+        
+        # Apply a small gain if audio is too quiet
+        if np.abs(audio).max() < 0.1:
+            audio = audio * 5.0
+        
+        # Convert to int16 format that Whisper expects
+        audio_int16 = (audio * 32767).astype(np.int16)
+        
+        logger.info(f"Audio after normalization: max={audio.max():.4f}, min={audio.min():.4f}")
+        logger.info(f"Audio int16 range: [{audio_int16.min()}, {audio_int16.max()}]")
+        
+        # Try basic transcription with minimal parameters
         segments, info = self.model.transcribe(
-            audio,
-            language=self.language,
+            audio_int16,
             task="transcribe",
-            vad_filter=False,  # Disable VAD to prevent removing all audio
-            # Better language detection for Vietnamese
-            language_detection_threshold=0.5,
         )
         
-        text = " ".join(segment.text.strip() for segment in segments)
-        detected_lang = info.language if info.language_probability > 0.3 else "en"
-        print(f"DEBUG: Detected language: {info.language} (probability: {info.language_probability:.2f})")
+        # Collect all segments
+        segment_texts = []
+        for segment in segments:
+            segment_texts.append(segment.text.strip())
+            logger.debug(f"Segment: '{segment.text}' (start={segment.start:.2f}, end={segment.end:.2f})")
+        
+        text = " ".join(segment_texts)
+        logger.info(f"Total segments: {len(segment_texts)}, Combined text: '{text}'")
+        # Force English language detection
+        detected_lang = "en"
+        print(f"DEBUG: Forced language to English")
         return text, detected_lang
     
     async def transcribe_async(

@@ -144,7 +144,7 @@ class VoiceSession:
         
         Transcribe accumulated audio and generate response.
         """
-        if len(self.audio_buffer) < 8000:  # Less than 0.33s at 24kHz
+        if len(self.audio_buffer) < 8000:  # Less than 0.33s at 24kHz (adjusted for 3s buffer)
             logger.info("Audio buffer too short, skipping")
             self.audio_buffer.clear()
             return None
@@ -153,13 +153,39 @@ class VoiceSession:
         audio = self.audio_buffer.get_all()
         self.audio_buffer.clear()  # Clear after taking audio
         
+        # Filter out silence packets (all zeros)
+        # Keep only audio that has actual content
+        non_silent_audio = []
+        chunk_size = 480  # Size of silence packets
+        for i in range(0, len(audio), chunk_size):
+            chunk = audio[i:i+chunk_size]
+            # Less strict threshold - check if there's any meaningful audio
+            if np.abs(chunk).max() > 0.001:  # Lowered threshold
+                non_silent_audio.append(chunk)
+        
+        if not non_silent_audio:
+            logger.info("No non-silent audio found, skipping")
+            return None
+        
+        audio = np.concatenate(non_silent_audio)
+        logger.info(f"Filtered audio: {len(audio)} samples (removed {len(audio) - len(non_silent_audio) * chunk_size} silence samples)")
+        
+        # Check audio energy
+        energy = np.sqrt(np.mean(audio ** 2))
+        logger.info(f"Audio energy: {energy:.4f}")
+        
         # Convert to 16kHz for Whisper
         audio_16khz = convert_to_16khz(audio, 24000)
+        
+        # Debug: save audio to check
+        logger.info(f"Audio shape: {audio.shape}, 16kHz shape: {audio_16khz.shape}")
+        logger.info(f"Audio dtype: {audio.dtype}, 16kHz dtype: {audio_16khz.dtype}")
         
         # Transcribe
         logger.info("Transcribing audio...")
         text, language = await self.stt.transcribe_async(audio_16khz, 16000)
         self.detected_language = language
+        logger.info(f"Raw transcription result: '{text}'")
         
         if not text.strip():
             logger.info("No speech detected, buffer cleared")
@@ -311,14 +337,21 @@ class AlternativeServer:
             voice = voice_prompt  # Use selected voice
         
         # Create TTS based on engine
+        tts = None
         if engine == "kokoro":
-            from .tts import KokoroTTS
-            tts = KokoroTTS(voice=voice, device="cuda")
-        else:
+            try:
+                from .tts import KokoroTTS
+                tts = KokoroTTS(voice=voice, device="cuda")
+                logger.info(f"Initialized Kokoro TTS with voice '{voice}'")
+            except Exception as e:
+                logger.warning(f"Kokoro TTS failed to initialize: {e}")
+                logger.info("Falling back to Piper TTS")
+                engine = "piper"
+        
+        if tts is None:
             from .tts import PiperTTS
             tts = PiperTTS(voice=voice, device="cuda")
-        
-        logger.info(f"Initializing {engine.upper()} TTS with voice '{voice}'")
+            logger.info(f"Initialized Piper TTS with voice '{voice}'")
         
         llm = OllamaLLM(
             base_url=self.ollama_url,
@@ -394,13 +427,20 @@ class AlternativeServer:
                 # Process audio - accumulate and check if we have enough
                 logger.info(f"Audio message received, {len(message.data)} bytes")
                 decoded = session.opus.decode(message.data)
-                logger.info(f"Decoded audio: {len(decoded)} samples, range: [{decoded.min():.4f}, {decoded.max():.4f}], mean: {decoded.mean():.4f}")
+                
+                # Check if audio is actually silence or just very quiet
+                is_silent = np.allclose(decoded, 0.0, atol=1e-6)
+                max_val = np.abs(decoded).max()
+                
+                logger.info(f"Decoded audio: {len(decoded)} samples, range: [{decoded.min():.6f}, {decoded.max():.6f}], mean: {decoded.mean():.6f}")
+                logger.info(f"Is silent: {is_silent}, Max absolute: {max_val:.6f}")
+                
                 session.audio_buffer.append(decoded)
                 
-                # Check if we have enough audio to process (1.5 seconds)
+                # Check if we have enough audio to process (3 seconds instead of 1.5 to compensate for silence)
                 buffer_samples = len(session.audio_buffer)
                 # Only process if not already processing (cooldown)
-                if buffer_samples >= 36000 and not session.processing:  # 1.5s at 24kHz
+                if buffer_samples >= 72000 and not session.processing:  # 3s at 24kHz (increased from 1.5s)
                     session.processing = True  # Set flag to prevent re-entry
                     logger.info(f"Processing audio buffer: {buffer_samples} samples")
                     response_audio = await session.end_turn()

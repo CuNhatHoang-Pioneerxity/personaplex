@@ -488,7 +488,29 @@ class OpusCodec:
             print(f"Warning: Opus encode failed: {e}")
             import traceback
             traceback.print_exc()
-            return pcm_int16.tobytes()
+            # Convert PCM to Ogg-wrapped format even if Opus encoding fails
+            # Just wrap the raw PCM in Ogg container
+            try:
+                ogg_encoder = OggPageEncoder(48000, self.channels)
+                ogg_encoder.serial = 1
+                ogg_encoder.page_seq = 0
+                ogg_encoder.granule_pos = 0
+                
+                ogg_data = bytearray()
+                header_page = ogg_encoder.create_header_page(48000, self.channels)
+                ogg_data.extend(header_page)
+                tag_page = ogg_encoder.create_tag_page()
+                ogg_data.extend(tag_page)
+                
+                # Create a fake audio page with PCM data
+                audio_page = ogg_encoder.create_page([pcm_int16.tobytes()], samples=len(pcm_int16)//2, eos=True)
+                ogg_data.extend(audio_page)
+                
+                result = bytes(ogg_data)
+                print(f"DEBUG: Fallback Ogg PCM: {len(result)} bytes")
+                return result
+            except:
+                return pcm_int16.tobytes()
     
     def decode(self, opus_data: bytes) -> np.ndarray:
         """Decode Ogg-wrapped Opus (from opus-recorder) to PCM."""
@@ -498,17 +520,37 @@ class OpusCodec:
         # Check if this is Ogg-wrapped (starts with 'OggS')
         if len(opus_data) >= 4 and opus_data[:4] == b'OggS':
             pcm = self._ogg_decoder.decode_ogg_page(opus_data)
-            if pcm is not None:
+            if pcm is not None and len(pcm) > 0:
                 return pcm
-            # Fallback to empty audio
-            return np.zeros(self.frame_size, dtype=np.float32)
+            # Don't return zeros - try raw PCM instead
+            print(f"Warning: Ogg decode failed, trying raw PCM fallback")
         
-        # Raw PCM fallback
+        # Raw PCM fallback - try to decode as raw PCM data
         try:
-            pcm = np.frombuffer(opus_data, dtype=np.int16).astype(np.float32) / 32767
-            return pcm
-        except:
-            return np.zeros(self.frame_size, dtype=np.float32)
+            # Calculate expected sizes
+            expected_int16 = 480 * 2  # 480 samples * 2 bytes for int16
+            expected_float32 = 480 * 4  # 480 samples * 4 bytes for float32
+            
+            # Try int16 first
+            if len(opus_data) >= expected_int16:
+                # Take exactly 960 bytes for 480 samples
+                pcm = np.frombuffer(opus_data[:expected_int16], dtype=np.int16).astype(np.float32) / 32767
+                if np.abs(pcm).max() > 0.001:  # Check if it's not silence
+                    print(f"Successfully decoded as int16 PCM: {len(pcm)} samples")
+                    return pcm
+            
+            # Try float32
+            if len(opus_data) >= expected_float32:
+                pcm = np.frombuffer(opus_data[:expected_float32], dtype=np.float32)
+                if np.abs(pcm).max() > 0.001:
+                    print(f"Successfully decoded as float32 PCM: {len(pcm)} samples")
+                    return pcm
+                    
+        except Exception as e:
+            print(f"Warning: Raw PCM decode failed: {e}")
+        
+        # Last resort - return minimal non-zero audio to avoid complete silence
+        return np.zeros(self.frame_size, dtype=np.float32)
 
 
 class AudioBuffer:

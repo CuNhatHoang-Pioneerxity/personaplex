@@ -335,7 +335,11 @@ class KokoroTTS:
             # Use 'a' for American English, 'b' for British
             lang_code = 'b' if self.voice.startswith('b') else 'a'
             # KPipeline with model=False to avoid auto-loading, we'll pass model manually
-            self._pipeline = KPipeline(lang_code=lang_code, model=False)
+            try:
+                self._pipeline = KPipeline(lang_code=lang_code, model=False)
+            except SystemExit:
+                # Fallback if spaCy download fails
+                raise RuntimeError("Kokoro initialization failed - spaCy model download failed")
         return self._pipeline
     
     @property
